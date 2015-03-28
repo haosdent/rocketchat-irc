@@ -2,6 +2,11 @@ net = Npm.require('net')
 
 ircMap = {}
 
+# grrrr, Meteor.bindEnvironment doesn't preserve `this` apparently
+bind = (f) ->
+	g = Meteor.bindEnvironment (self, args...) -> f.apply(self, args)
+	(args...) -> g @, args...
+
 class Irc
 	constructor: (@user, @onReceiveMessage) ->
 		ircMap[@user._id] = this
@@ -70,3 +75,10 @@ Irc.getByUid = (uid) ->
 Irc.create = (user, onReceiveMessage) ->
 	unless user._id of ircMap
 		new Irc user, onReceiveMessage
+
+class IrcReceiver
+	constructor: (message) ->
+		console.log '[methods] ircSendMessage -> '.green, message
+		return message
+
+RocketChat.callbacks.add 'beforeSaveMessage', IrcReceiver, RocketChat.callbacks.priority.LOW
