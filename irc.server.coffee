@@ -1,15 +1,15 @@
 net = Npm.require('net')
 
-ircMap = {}
+ircClientMap = {}
 
 # grrrr, Meteor.bindEnvironment doesn't preserve `this` apparently
 bind = (f) ->
 	g = Meteor.bindEnvironment (self, args...) -> f.apply(self, args)
 	(args...) -> g @, args...
 
-class Irc
-	constructor: (@user, @onReceiveMessage) ->
-		ircMap[@user._id] = this
+class IrcClient
+	constructor: (@user) ->
+		ircClientMap[@user._id] = this
 		port = 6667
 		host = 'irc.freenode.net'
 		@msgBuf = []
@@ -18,7 +18,7 @@ class Irc
 		@socket.setNoDelay
 		@socket.setEncoding 'utf-8'
 		@socket.connect port, host, @onConnect
-		@socket.on 'data', @onData
+		@socket.on 'data', bind @onReceiveRawMessage
 		@socket.on 'close', @onClose
 		@receiveMessageRegex = /^:(\S+)!~\S+ PRIVMSG (\S+) :(.+)\r\n$/
 
@@ -31,54 +31,104 @@ class Irc
 		@isConnected = true
 		@socket.write msg for msg in @msgBuf
 
-	onData: (data) =>
-		data = data.toString()
-		if data.indexOf('PING') == 0
-			@socket.write data.replace('PING :', 'PONG ')
-		#console.log 'Return by server:', data
-		matchResult = @receiveMessageRegex.exec data
-		if matchResult != null
-			@receiveMessage matchResult[1], matchResult[2], matchResult[3]
-
 	onClose: (data) =>
 		console.log @user.username, 'connection close.'
 
+	onReceiveRawMessage: (data) =>
+		data = data.toString()
+		if data.indexOf('PING') == 0
+			@socket.write data.replace('PING :', 'PONG ')
+		console.log 'Return by server:', data
+		matchResult = @receiveMessageRegex.exec data
+		if matchResult != null
+			@onReceiveMessage matchResult[1], matchResult[2], matchResult[3]
+
+	onTmpReceiveMessage: () ->
+		Meteor.call 'sendMessage',
+			u:
+				username: 'haosdentd'
+			to: 'haosdent'
+			msg: 'reply'
+			rid: 'EtomNKRwxp6mELsGGLHa4ybHScj2WZoo3K'
+
+	onReceiveMessage: (name, target, content) ->
+		console.log 'onReceiveMessage', this
+		console.log '[irc] onReceiveMessage -> '.yellow, 'sourceUserName:', name, 'target:', target, 'content:', content
+		# Meteor.call 'sendMessage',
+		# 	u:
+		# 		username: name
+		# 	to: target
+		# 	msg: content
+		# 	rid: 'EtomNKRwxp6mELsGGLHa4ybHScj2WZoo3K'
+
 	sendRawMessage: (msg) ->
+		console.log '[irc] sendRawMessage -> '.yellow, msg
 		if @isConnected
 			@socket.write msg
 		else
 			@msgBuf.push msg
 
-	sendMessage: (message) ->
-		msg = "PRIVMSG haosdent :#{message.msg}\r\n"
+	sendMessage: (room, message) ->
+		console.log '[irc] sendMessage -> '.yellow, 'userName:', message.u.username, 'arguments:', arguments
+		target = ''
+		if room.t == 'c'
+			target = "##{room.name}"
+		else if room.t == 'd'
+			for name in room.usernames
+				if message.u.username != name
+					target = name
+					break
+		msg = "PRIVMSG #{target} :#{message.msg}\r\n"
 		@sendRawMessage msg
-		message.uid = @user._id
-		@onReceiveMessage message
-
-	receiveMessage: (name, target, content) ->
-		message = {
-			username: name,
-			roomname: 'test_one',
-			msg: content
-		}
-		@onReceiveMessage message
 
 	joinRoom: (room) ->
 		msg = "JOIN ##{room.name}\r\n"
-		console.log msg
+		@sendRawMessage msg
+
+	leaveRoom: (room) ->
+		msg = "PART ##{room.name}\r\n"
 		@sendRawMessage msg
 
 
-Irc.getByUid = (uid) ->
-	return ircMap[uid]
+IrcClient.getByUid = (uid) ->
+	return ircClientMap[uid]
 
-Irc.create = (user, onReceiveMessage) ->
-	unless user._id of ircMap
-		new Irc user, onReceiveMessage
+IrcClient.create = (user) ->
+	unless user._id of ircClientMap
+		# new Irc user, onReceiveMessage
+		new IrcClient user
 
-class IrcReceiver
+
+class IrcLoginer
+	constructor: (login) ->
+		console.log '[irc] validateLogin -> '.yellow, login
+		IrcClient.create login.user
+		return login
+
+
+class IrcSender
 	constructor: (message) ->
-		console.log '[methods] ircSendMessage -> '.green, message
+		room = ChatRoom.findOne message.rid, { fields: { name: 1, usernames: 1, t: 1 } }
+		ircClient = IrcClient.getByUid message.u._id
+		ircClient.sendMessage room, message
 		return message
 
-RocketChat.callbacks.add 'beforeSaveMessage', IrcReceiver, RocketChat.callbacks.priority.LOW
+
+class IrcRoomJoiner
+	constructor: (user, room) ->
+		ircClient = IrcClient.getByUid user._id
+		ircClient.joinRoom room
+		return room
+
+
+class IrcRoomLeaver
+	constructor: (user, room) ->
+		ircClient = IrcClient.getByUid user._id
+		ircClient.leaveRoom room
+		return room
+
+
+RocketChat.callbacks.add 'beforeValidateLogin', IrcLoginer, RocketChat.callbacks.priority.LOW
+RocketChat.callbacks.add 'beforeSaveMessage', IrcSender, RocketChat.callbacks.priority.LOW
+RocketChat.callbacks.add 'beforeJoinRoom', IrcSender, RocketChat.callbacks.priority.LOW
+RocketChat.callbacks.add 'beforeLeaveRoom', IrcSender, RocketChat.callbacks.priority.LOW
