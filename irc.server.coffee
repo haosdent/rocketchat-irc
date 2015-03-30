@@ -7,20 +7,28 @@ bind = (f) ->
 	g = Meteor.bindEnvironment (self, args...) -> f.apply(self, args)
 	(args...) -> g @, args...
 
+async = (f, args...) ->
+	Meteor.wrapAsync(f)(args...)
+
 class IrcClient
-	constructor: (@user) ->
+	constructor: (@loginReq) ->
+		@user = @loginReq.user
 		ircClientMap[@user._id] = this
-		port = 6667
-		host = 'irc.freenode.net'
+		@ircPort = 6667
+		@ircHost = 'irc.freenode.net'
 		@msgBuf = []
 		@isConnected = false
 		@socket = new net.Socket
 		@socket.setNoDelay
 		@socket.setEncoding 'utf-8'
-		@socket.connect port, host, @onConnect
-		@socket.on 'data', bind @onReceiveRawMessage
+		@onConnect = bind @onConnect
+		@onReceiveRawMessage = bind @onReceiveRawMessage
+		@socket.on 'data', @onReceiveRawMessage
 		@socket.on 'close', @onClose
 		@receiveMessageRegex = /^:(\S+)!~\S+ PRIVMSG (\S+) :(.+)\r\n$/
+
+	connect: (@loginCb) =>
+		@socket.connect @ircPort, @ircHost, @onConnect
 
 	onConnect: () =>
 		console.log @user.username, 'connect success.'
@@ -30,6 +38,7 @@ class IrcClient
 		# message order could not make sure here
 		@isConnected = true
 		@socket.write msg for msg in @msgBuf
+		@loginCb null, @loginReq
 
 	onClose: (data) =>
 		console.log @user.username, 'connection close.'
@@ -93,17 +102,17 @@ class IrcClient
 IrcClient.getByUid = (uid) ->
 	return ircClientMap[uid]
 
-IrcClient.create = (user) ->
-	unless user._id of ircClientMap
-		# new Irc user, onReceiveMessage
-		new IrcClient user
+IrcClient.create = (login) ->
+	unless login.user._id of ircClientMap
+		ircClient = new IrcClient login
+		return async ircClient.connect
+	return login
 
 
 class IrcLoginer
 	constructor: (login) ->
 		console.log '[irc] validateLogin -> '.yellow, login
-		IrcClient.create login.user
-		return login
+		return IrcClient.create login
 
 
 class IrcSender
