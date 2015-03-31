@@ -53,7 +53,7 @@ class IrcClient
 			@onReceiveMessage matchResult[1], matchResult[2], matchResult[3]
 
 	onTmpReceiveMessage: () ->
-		Meteor.call 'sendMessage',
+		Meteor.call 'receiveMessage',
 			u:
 				username: 'haosdentd'
 			to: 'haosdent'
@@ -61,14 +61,17 @@ class IrcClient
 			rid: 'EtomNKRwxp6mELsGGLHa4ybHScj2WZoo3K'
 
 	onReceiveMessage: (name, target, content) ->
-		console.log 'onReceiveMessage', this
 		console.log '[irc] onReceiveMessage -> '.yellow, 'sourceUserName:', name, 'target:', target, 'content:', content
-		# Meteor.call 'sendMessage',
-		# 	u:
-		# 		username: name
-		# 	to: target
-		# 	msg: content
-		# 	rid: 'EtomNKRwxp6mELsGGLHa4ybHScj2WZoo3K'
+		if target[0] == '#'
+			room = ChatRoom.findOne {name: target.substring 1}
+		else
+			room = ChatRoom.findOne {usernames: {'$all': [target, name]}, t: 'd'}, { fields: { usernames: 1, t: 1 } }
+
+		Meteor.call 'receiveMessage',
+			u:
+				username: name
+			rid: room._id
+			msg: content
 
 	sendRawMessage: (msg) ->
 		console.log '[irc] sendRawMessage -> '.yellow, msg
@@ -139,5 +142,5 @@ class IrcRoomLeaver
 
 RocketChat.callbacks.add 'beforeValidateLogin', IrcLoginer, RocketChat.callbacks.priority.LOW
 RocketChat.callbacks.add 'beforeSaveMessage', IrcSender, RocketChat.callbacks.priority.LOW
-RocketChat.callbacks.add 'beforeJoinRoom', IrcSender, RocketChat.callbacks.priority.LOW
-RocketChat.callbacks.add 'beforeLeaveRoom', IrcSender, RocketChat.callbacks.priority.LOW
+RocketChat.callbacks.add 'beforeJoinRoom', IrcRoomJoiner, RocketChat.callbacks.priority.LOW
+RocketChat.callbacks.add 'beforeLeaveRoom', IrcRoomLeaver, RocketChat.callbacks.priority.LOW
