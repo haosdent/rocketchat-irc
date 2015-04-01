@@ -2,7 +2,6 @@ net = Npm.require('net')
 
 ircClientMap = {}
 
-# grrrr, Meteor.bindEnvironment doesn't preserve `this` apparently
 bind = (f) ->
 	g = Meteor.bindEnvironment (self, args...) -> f.apply(self, args)
 	(args...) -> g @, args...
