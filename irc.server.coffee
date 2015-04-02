@@ -51,14 +51,6 @@ class IrcClient
 		if matchResult != null
 			@onReceiveMessage matchResult[1], matchResult[2], matchResult[3]
 
-	onTmpReceiveMessage: () ->
-		Meteor.call 'receiveMessage',
-			u:
-				username: 'haosdentd'
-			to: 'haosdent'
-			msg: 'reply'
-			rid: 'EtomNKRwxp6mELsGGLHa4ybHScj2WZoo3K'
-
 	onReceiveMessage: (name, target, content) ->
 		console.log '[irc] onReceiveMessage -> '.yellow, 'sourceUserName:', name, 'target:', target, 'content:', content
 		if target[0] == '#'
