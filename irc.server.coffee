@@ -25,6 +25,7 @@ class IrcClient
 		@socket.on 'data', @onReceiveRawMessage
 		@socket.on 'close', @onClose
 		@receiveMessageRegex = /^:(\S+)!~\S+ PRIVMSG (\S+) :(.+)\r\n$/
+		@initRoomList()
 
 	connect: (@loginCb) =>
 		@socket.connect @ircPort, @ircHost, @onConnect
@@ -33,7 +34,6 @@ class IrcClient
 		console.log @user.username, 'connect success.'
 		@socket.write "NICK #{@user.username}\r\n"
 		@socket.write "USER #{@user.username} 0 * :Real Name\r\n"
-		@socket.write 'JOIN #hadoop\r\n'
 		# message order could not make sure here
 		@isConnected = true
 		@socket.write msg for msg in @msgBuf
@@ -56,8 +56,14 @@ class IrcClient
 		if target[0] == '#'
 			room = ChatRoom.findOne {name: target.substring 1}
 		else
-			room = ChatRoom.findOne {usernames: {'$all': [target, name]}, t: 'd'}, { fields: { usernames: 1, t: 1 } }
+			room = ChatRoom.findOne {usernames: { $all: [target, name]}, t: 'd'}, { fields: { usernames: 1, t: 1 } }
 
+		sourceUser = Meteor.users.findOne {username: message.u.username}, fields: username: 1
+		unless sourceUser
+			Meteor.call 'registerUser',
+				email: '',
+				password: name,
+				name: name
 		Meteor.call 'receiveMessage',
 			u:
 				username: name
@@ -83,6 +89,12 @@ class IrcClient
 					break
 		msg = "PRIVMSG #{target} :#{message.msg}\r\n"
 		@sendRawMessage msg
+
+	initRoomList: () ->
+		roomsCursor = ChatRoom.find {usernames: { $in: [@user.username]}, t: 'c'}, { fields: { name: 1 }}
+		rooms = roomsCursor.fetch()
+		for room in rooms
+			@joinRoom(room)
 
 	joinRoom: (room) ->
 		msg = "JOIN ##{room.name}\r\n"
