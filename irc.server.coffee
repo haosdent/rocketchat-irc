@@ -24,7 +24,8 @@ class IrcClient
 		@onReceiveRawMessage = bind @onReceiveRawMessage
 		@socket.on 'data', @onReceiveRawMessage
 		@socket.on 'close', @onClose
-		@receiveMessageRegex = /^:(\S+)!~\S+ PRIVMSG (\S+) :(.+)\r\n$/
+		@receiveMessageRegex = /^:(\S+)!~\S+ PRIVMSG (\S+) :(.+)$/
+		@memberListRegex = /^:\S+ \d+ \S+ = #(\S+) :(.*)$/
 		@initRoomList()
 
 	connect: (@loginCb) =>
@@ -43,13 +44,23 @@ class IrcClient
 		console.log @user.username, 'connection close.'
 
 	onReceiveRawMessage: (data) =>
-		data = data.toString()
-		if data.indexOf('PING') == 0
-			@socket.write data.replace('PING :', 'PONG ')
-		console.log 'Return by server:', data
-		matchResult = @receiveMessageRegex.exec data
-		if matchResult != null
-			@onReceiveMessage matchResult[1], matchResult[2], matchResult[3]
+		data = data.toString().split('\n')
+		for line in data
+			line = line.trim()
+			console.log "[#{@ircHost}:#{@ircPort}]:", line
+			if line.indexOf('PING') == 0
+				@socket.write line.replace('PING :', 'PONG ')
+				continue
+
+			matchResult = @receiveMessageRegex.exec line
+			if matchResult
+				@onReceiveMessage matchResult[1], matchResult[2], matchResult[3]
+				continue
+
+			matchResult = @memberListRegex.exec line
+			if matchResult
+				@onReceiveMemberList matchResult[1], matchResult[2].split ' '
+				continue
 
 	onReceiveMessage: (name, target, content) ->
 		console.log '[irc] onReceiveMessage -> '.yellow, 'sourceUserName:', name, 'target:', target, 'content:', content
@@ -69,6 +80,9 @@ class IrcClient
 				username: name
 			rid: room._id
 			msg: content
+
+	onReceiveMemberList: (room, members) ->
+		console.log '[irc] onReceiveMemberList -> '.yellow, 'room:', room, 'members:', members
 
 	sendRawMessage: (msg) ->
 		console.log '[irc] sendRawMessage -> '.yellow, msg
@@ -98,6 +112,8 @@ class IrcClient
 
 	joinRoom: (room) ->
 		msg = "JOIN ##{room.name}\r\n"
+		@sendRawMessage msg
+		msg = "NAMES ##{room.name}\r\n"
 		@sendRawMessage msg
 
 	leaveRoom: (room) ->
